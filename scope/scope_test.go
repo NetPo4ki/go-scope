@@ -131,6 +131,45 @@ func TestChildCancellation(t *testing.T) {
 	}
 }
 
+func TestScopeTimeoutCancelsTasks(t *testing.T) {
+	t.Parallel()
+	s := New(context.Background(), FailFast, WithTimeout(30*time.Millisecond))
+	done := make(chan struct{})
+	s.Go(func(ctx context.Context) error {
+		defer close(done)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	err := s.Wait()
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	select {
+	case <-done:
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("task did not observe timeout")
+	}
+}
+
+func TestChildInheritsParentDeadline(t *testing.T) {
+	t.Parallel()
+	parent := New(context.Background(), FailFast, WithTimeout(40*time.Millisecond))
+	child := parent.Child(FailFast)
+	observed := make(chan struct{})
+	child.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		close(observed)
+		return ctx.Err()
+	})
+	_ = child.Wait()
+	_ = parent.Wait()
+	select {
+	case <-observed:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("child did not observe parent's deadline")
+	}
+}
+
 type countObserver struct {
 	started  atomic.Int64
 	finished atomic.Int64
