@@ -2,6 +2,7 @@ package scope
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -73,6 +74,7 @@ type Scope struct {
 	opts Options
 	obs  Observer
 	lim  Limiter
+	errs []error
 }
 
 // New creates a Scope with the given parent context, policy, and options.
@@ -189,6 +191,9 @@ func (s *Scope) Wait() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.policy == Supervisor && len(s.errs) > 0 {
+		return errors.Join(s.errs...)
+	}
 	return s.firstErr
 }
 
@@ -197,6 +202,9 @@ func (s *Scope) fail(err error) {
 		return
 	}
 	s.mu.Lock()
+	if s.policy == Supervisor {
+		s.errs = append(s.errs, err)
+	}
 	if s.firstErr == nil {
 		s.firstErr = err
 	}
