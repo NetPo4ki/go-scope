@@ -14,7 +14,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22.x"
+          go-version: "1.24.x"
       - name: Build
         run: go build ./...
       - name: Test (race)
@@ -22,7 +22,7 @@ jobs:
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.61.0
+          version: latest
           args: --timeout=5m
 
 
