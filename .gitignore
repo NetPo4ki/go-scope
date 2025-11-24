@@ -1,0 +1,16 @@
+bin/
+dist/
+*.exe
+*.test
+*.out
+*.cover
+
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+vendor/
+
+
