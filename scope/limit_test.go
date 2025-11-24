@@ -45,7 +45,7 @@ func TestLimiterAcquireRespectsCancel(t *testing.T) {
 	t.Parallel()
 	s := New(context.Background(), FailFast, WithMaxConcurrency(1))
 	block := make(chan struct{})
-	s.Go(func(ctx context.Context) error {
+	s.Go(func(_ context.Context) error {
 		<-block
 		return nil
 	})

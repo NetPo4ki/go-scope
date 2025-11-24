@@ -104,7 +104,7 @@ func TestSupervisorDoesNotCancelSiblings(t *testing.T) {
 func TestPanicAsErrorConverted(t *testing.T) {
 	t.Parallel()
 	s := New(context.Background(), FailFast, WithPanicAsError(true))
-	s.Go(func(ctx context.Context) error {
+	s.Go(func(_ context.Context) error {
 		panic("panic-value")
 	})
 	if err := s.Wait(); err == nil || err.Error() == "panic-value" {
