@@ -50,18 +50,11 @@ func TestLimiterAcquireRespectsCancel(t *testing.T) {
 		return nil
 	})
 	start := time.Now()
-	done := make(chan struct{})
 	s.Go(func(ctx context.Context) error {
-		close(done)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-			t.Fatal("acquire did not respect cancellation")
-			return nil
-		}
+		<-ctx.Done()
+		return ctx.Err()
 	})
-	<-done
+	time.Sleep(10 * time.Millisecond)
 	s.Cancel(context.Canceled)
 	_ = s.Wait()
 	elapsed := time.Since(start)
