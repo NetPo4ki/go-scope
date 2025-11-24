@@ -12,14 +12,14 @@ func TestMaxConcurrencyBound(t *testing.T) {
 	const N = 8
 	const M = 50
 	s := New(context.Background(), Supervisor, WithMaxConcurrency(N))
-	var cur, max atomic.Int64
+	var cur, maxSeen atomic.Int64
 	block := make(chan struct{})
 	for i := 0; i < M; i++ {
 		s.Go(func(ctx context.Context) error {
 			c := cur.Add(1)
 			for {
-				if m := max.Load(); c > m {
-					max.CompareAndSwap(m, c)
+				if m := maxSeen.Load(); c > m {
+					maxSeen.CompareAndSwap(m, c)
 				}
 				select {
 				case <-block:
@@ -36,7 +36,7 @@ func TestMaxConcurrencyBound(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	close(block)
 	_ = s.Wait()
-	if observed := int(max.Load()); observed > N {
+	if observed := int(maxSeen.Load()); observed > N {
 		t.Fatalf("observed concurrency %d exceeds limit %d", observed, N)
 	}
 }

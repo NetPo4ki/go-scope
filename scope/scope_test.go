@@ -18,7 +18,7 @@ func TestGoWaitSuccess(t *testing.T) {
 	t.Parallel()
 	s := New(context.Background(), FailFast)
 	done := atomic.Int32{}
-	s.Go(func(ctx context.Context) error {
+	s.Go(func(_ context.Context) error {
 		done.Add(1)
 		return nil
 	})
@@ -64,7 +64,7 @@ func TestFailFastCancelsSiblings(t *testing.T) {
 			return ctx.Err()
 		}
 	})
-	s.Go(func(ctx context.Context) error {
+	s.Go(func(_ context.Context) error {
 		time.Sleep(30 * time.Millisecond)
 		return errors.New("boom")
 	})
@@ -82,12 +82,12 @@ func TestSupervisorDoesNotCancelSiblings(t *testing.T) {
 	t.Parallel()
 	s := New(context.Background(), Supervisor)
 	done := make(chan struct{})
-	s.Go(func(ctx context.Context) error {
+	s.Go(func(_ context.Context) error {
 		time.Sleep(40 * time.Millisecond)
 		close(done)
 		return nil
 	})
-	s.Go(func(ctx context.Context) error {
+	s.Go(func(_ context.Context) error {
 		time.Sleep(10 * time.Millisecond)
 		return errors.New("err")
 	})
@@ -138,11 +138,11 @@ type countObserver struct {
 	cancel   atomic.Int64
 }
 
-func (o *countObserver) ScopeCreated(ctx context.Context)                    {}
-func (o *countObserver) ScopeCancelled(ctx context.Context, cause error)     { o.cancel.Add(1) }
-func (o *countObserver) ScopeJoined(ctx context.Context, wait time.Duration) { o.joined.Add(1) }
-func (o *countObserver) TaskStarted(ctx context.Context)                     { o.started.Add(1) }
-func (o *countObserver) TaskFinished(ctx context.Context, d time.Duration, _ error, _ bool) {
+func (o *countObserver) ScopeCreated(_ context.Context)                 {}
+func (o *countObserver) ScopeCancelled(_ context.Context, _ error)      { o.cancel.Add(1) }
+func (o *countObserver) ScopeJoined(_ context.Context, _ time.Duration) { o.joined.Add(1) }
+func (o *countObserver) TaskStarted(_ context.Context)                  { o.started.Add(1) }
+func (o *countObserver) TaskFinished(_ context.Context, _ time.Duration, _ error, _ bool) {
 	o.finished.Add(1)
 }
 
@@ -150,8 +150,8 @@ func TestObserverHooks(t *testing.T) {
 	t.Parallel()
 	obs := &countObserver{}
 	s := New(context.Background(), FailFast, WithObserver(obs))
-	s.Go(func(ctx context.Context) error { return nil })
-	s.Go(func(ctx context.Context) error { return nil })
+	s.Go(func(_ context.Context) error { return nil })
+	s.Go(func(_ context.Context) error { return nil })
 	if err := s.Wait(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
