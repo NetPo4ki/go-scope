@@ -7,29 +7,41 @@ import (
 	"time"
 )
 
+// Policy controls error propagation behavior in a Scope.
 type Policy int
 
 const (
+	// FailFast cancels siblings on the first task error or panic and records the cause.
 	FailFast Policy = iota
+	// Supervisor allows siblings to continue despite a task error; errors may be aggregated.
 	Supervisor
 )
 
+// Option configures a Scope at construction time.
 type Option func(*Options)
 
+// Options holds optional settings for Scope construction.
 type Options struct {
-	PanicAsError   bool
-	Observer       Observer
+	// PanicAsError converts a panic inside a task to an error when true.
+	PanicAsError bool
+	// Observer receives lifecycle events; if nil, hooks are skipped (near-zero overhead).
+	Observer Observer
+	// MaxConcurrency bounds concurrent tasks in a scope when > 0.
 	MaxConcurrency int
 }
 
 func defaultOptions() Options { return Options{PanicAsError: true} }
 
+// WithPanicAsError toggles converting task panics into errors.
 func WithPanicAsError(v bool) Option { return func(o *Options) { o.PanicAsError = v } }
 
+// WithObserver attaches an observer for metrics/tracing hooks (nil = disabled).
 func WithObserver(obs Observer) Option { return func(o *Options) { o.Observer = obs } }
 
+// WithMaxConcurrency limits the number of concurrent tasks in a scope (n>0).
 func WithMaxConcurrency(n int) Option { return func(o *Options) { o.MaxConcurrency = n } }
 
+// Observer receives lifecycle events for metrics/tracing.
 type Observer interface {
 	ScopeCreated(ctx context.Context)
 	ScopeCancelled(ctx context.Context, cause error)
@@ -38,6 +50,7 @@ type Observer interface {
 	TaskFinished(ctx context.Context, dur time.Duration, err error, panicked bool)
 }
 
+// Scope owns a set of tasks and provides an explicit join point via Wait.
 type Scope struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -52,6 +65,7 @@ type Scope struct {
 	lim  Limiter
 }
 
+// New creates a Scope with the given parent context, policy, and options.
 func New(parent context.Context, policy Policy, optFns ...Option) *Scope {
 	if parent == nil {
 		parent = context.Background()
@@ -71,8 +85,10 @@ func New(parent context.Context, policy Policy, optFns ...Option) *Scope {
 	return s
 }
 
+// Context returns the Scope's context.
 func (s *Scope) Context() context.Context { return s.ctx }
 
+// Go starts a task owned by the Scope. The task should be cooperative and check ctx.Done().
 func (s *Scope) Go(fn func(ctx context.Context) error) {
 	if fn == nil {
 		return
@@ -120,6 +136,7 @@ func (s *Scope) Go(fn func(ctx context.Context) error) {
 	}()
 }
 
+// Cancel cancels the Scope and records the first non-nil error as the cause.
 func (s *Scope) Cancel(err error) {
 	s.mu.Lock()
 	wasCanceled := s.canceled
@@ -140,6 +157,7 @@ func (s *Scope) Cancel(err error) {
 	}
 }
 
+// Wait blocks until all owned tasks complete and returns the recorded error, if any.
 func (s *Scope) Wait() error {
 	var start time.Time
 	if s.obs != nil {
@@ -170,6 +188,7 @@ func (s *Scope) fail(err error) {
 	}
 }
 
+// Child creates a child Scope inheriting options; parent cancellation cancels the child.
 func (s *Scope) Child(policy Policy, optFns ...Option) *Scope {
 	childOpts := s.opts
 	for _, fn := range optFns {

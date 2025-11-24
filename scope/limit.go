@@ -1,7 +1,9 @@
+// Package scope provides structured concurrency primitives for Go.
 package scope
 
 import "context"
 
+// Limiter bounds concurrent tasks within a scope.
 type Limiter interface {
 	Acquire(ctx context.Context) error
 	Release()
