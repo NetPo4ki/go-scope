@@ -101,6 +101,22 @@ func TestSupervisorDoesNotCancelSiblings(t *testing.T) {
 	}
 }
 
+func TestSupervisorAggregatesErrors(t *testing.T) {
+	t.Parallel()
+	s := New(context.Background(), Supervisor)
+	e1 := errors.New("e1")
+	e2 := errors.New("e2")
+	s.Go(func(_ context.Context) error { return e1 })
+	s.Go(func(_ context.Context) error { time.Sleep(10 * time.Millisecond); return e2 })
+	err := s.Wait()
+	if err == nil {
+		t.Fatal("expected aggregated error")
+	}
+	if !errors.Is(err, e1) || !errors.Is(err, e2) {
+		t.Fatalf("expected aggregated error to contain both e1 and e2, got %v", err)
+	}
+}
+
 func TestPanicAsErrorConverted(t *testing.T) {
 	t.Parallel()
 	s := New(context.Background(), FailFast, WithPanicAsError(true))
