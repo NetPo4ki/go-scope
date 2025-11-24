@@ -28,6 +28,10 @@ type Options struct {
 	Observer Observer
 	// MaxConcurrency bounds concurrent tasks in a scope when > 0.
 	MaxConcurrency int
+	// Timeout applies a relative deadline to the scope when > 0 (ignored if Deadline is set).
+	Timeout time.Duration
+	// Deadline applies an absolute deadline to the scope when non-zero.
+	Deadline time.Time
 }
 
 func defaultOptions() Options { return Options{PanicAsError: true} }
@@ -40,6 +44,12 @@ func WithObserver(obs Observer) Option { return func(o *Options) { o.Observer = 
 
 // WithMaxConcurrency limits the number of concurrent tasks in a scope (n>0).
 func WithMaxConcurrency(n int) Option { return func(o *Options) { o.MaxConcurrency = n } }
+
+// WithTimeout applies a relative deadline to the scope (ignored if WithDeadline is also set).
+func WithTimeout(d time.Duration) Option { return func(o *Options) { o.Timeout = d } }
+
+// WithDeadline applies an absolute deadline to the scope.
+func WithDeadline(t time.Time) Option { return func(o *Options) { o.Deadline = t } }
 
 // Observer receives lifecycle events for metrics/tracing.
 type Observer interface {
@@ -70,10 +80,20 @@ func New(parent context.Context, policy Policy, optFns ...Option) *Scope {
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithCancel(parent)
+	// collect options first
+	base := parent
+	ctx, cancel := context.WithCancel(base)
 	s := &Scope{ctx: ctx, cancel: cancel, policy: policy, opts: defaultOptions()}
 	for _, fn := range optFns {
 		fn(&s.opts)
+	}
+	// apply deadline/timeout if provided
+	if !s.opts.Deadline.IsZero() {
+		ctx, cancel = context.WithDeadline(base, s.opts.Deadline)
+		s.ctx, s.cancel = ctx, cancel
+	} else if s.opts.Timeout > 0 {
+		ctx, cancel = context.WithTimeout(base, s.opts.Timeout)
+		s.ctx, s.cancel = ctx, cancel
 	}
 	s.obs = s.opts.Observer
 	if s.opts.MaxConcurrency > 0 {
