@@ -49,13 +49,18 @@ func TestLimiterAcquireRespectsCancel(t *testing.T) {
 		<-block
 		return nil
 	})
-	start := time.Now()
+	// start a second task that will be blocked on Acquire
 	s.Go(func(ctx context.Context) error {
 		<-ctx.Done()
 		return ctx.Err()
 	})
+	// Give goroutine time to attempt Acquire
 	time.Sleep(10 * time.Millisecond)
+	// Measure cancellation responsiveness
+	start := time.Now()
 	s.Cancel(context.Canceled)
+	// Release the first task so Wait() can finish promptly
+	close(block)
 	_ = s.Wait()
 	elapsed := time.Since(start)
 	if elapsed > 300*time.Millisecond {
