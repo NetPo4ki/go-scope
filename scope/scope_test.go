@@ -186,6 +186,28 @@ func TestChildInheritsParentDeadline(t *testing.T) {
 	}
 }
 
+func TestChildShorterDeadlineOverridesParent(t *testing.T) {
+	t.Parallel()
+	parent := New(context.Background(), FailFast, WithTimeout(200*time.Millisecond))
+	child := parent.Child(FailFast, WithTimeout(30*time.Millisecond))
+	start := time.Now()
+	child.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	err := child.Wait()
+	if err == nil {
+		t.Fatal("expected child timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	}
+	if time.Since(start) > 150*time.Millisecond {
+		t.Fatal("child should time out sooner than parent")
+	}
+	_ = parent.Wait()
+}
+
 type countObserver struct {
 	started  atomic.Int64
 	finished atomic.Int64
