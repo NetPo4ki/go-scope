@@ -67,3 +67,52 @@ func TestLimiterAcquireRespectsCancel(t *testing.T) {
 		t.Fatalf("expected quick abort on cancel, got %v", elapsed)
 	}
 }
+
+func TestChildMaxConcurrencyBound(t *testing.T) {
+	t.Parallel()
+	parent := New(context.Background(), Supervisor)
+	child := parent.Child(Supervisor, WithMaxConcurrency(1))
+	var cur, maxSeen atomic.Int64
+	ch1 := make(chan struct{})
+	ch2 := make(chan struct{})
+
+	child.Go(func(_ context.Context) error {
+		c := cur.Add(1)
+		for {
+			if m := maxSeen.Load(); c > m {
+				maxSeen.CompareAndSwap(m, c)
+			}
+			select {
+			case <-ch1:
+				cur.Add(-1)
+				return nil
+			case <-time.After(1 * time.Millisecond):
+			}
+		}
+	})
+	child.Go(func(_ context.Context) error {
+		c := cur.Add(1)
+		for {
+			if m := maxSeen.Load(); c > m {
+				maxSeen.CompareAndSwap(m, c)
+			}
+			select {
+			case <-ch2:
+				cur.Add(-1)
+				return nil
+			case <-time.After(1 * time.Millisecond):
+			}
+		}
+	})
+	// Let first task start; second should be queued by limiter.
+	time.Sleep(20 * time.Millisecond)
+	if observed := int(maxSeen.Load()); observed > 1 {
+		t.Fatalf("child observed concurrency %d exceeds limit 1", observed)
+	}
+	// Release first, then second.
+	close(ch1)
+	time.Sleep(20 * time.Millisecond)
+	close(ch2)
+	_ = child.Wait()
+	_ = parent.Wait()
+}
