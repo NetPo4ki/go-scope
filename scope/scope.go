@@ -222,8 +222,20 @@ func (s *Scope) Child(policy Policy, optFns ...Option) *Scope {
 	for _, fn := range optFns {
 		fn(&childOpts)
 	}
-	ctx, cancel := context.WithCancel(s.ctx)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	switch {
+	case !childOpts.Deadline.IsZero():
+		ctx, cancel = context.WithDeadline(s.ctx, childOpts.Deadline)
+	case childOpts.Timeout > 0:
+		ctx, cancel = context.WithTimeout(s.ctx, childOpts.Timeout)
+	default:
+		ctx, cancel = context.WithCancel(s.ctx)
+	}
 	cs := &Scope{ctx: ctx, cancel: cancel, policy: policy, opts: childOpts, obs: childOpts.Observer}
+	if childOpts.MaxConcurrency > 0 {
+		cs.lim = newSemaphoreLimiter(childOpts.MaxConcurrency)
+	}
 	if cs.obs != nil {
 		cs.obs.ScopeCreated(ctx)
 	}
