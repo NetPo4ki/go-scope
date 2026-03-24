@@ -3,6 +3,7 @@ package scope
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -123,8 +124,15 @@ func TestPanicAsErrorConverted(t *testing.T) {
 	s.Go(func(_ context.Context) error {
 		panic("panic-value")
 	})
-	if err := s.Wait(); err == nil || err.Error() == "panic-value" {
+	err := s.Wait()
+	if err == nil || err.Error() == "panic-value" {
 		t.Fatalf("expected converted panic error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "panic-value") {
+		t.Fatalf("expected panic payload in error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "goroutine") {
+		t.Fatalf("expected stack trace in panic error, got %v", err)
 	}
 }
 
@@ -144,6 +152,32 @@ func TestChildCancellation(t *testing.T) {
 	case <-cancelObserved:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("child did not observe parent's cancellation")
+	}
+}
+
+func TestParentWaitJoinsChildScope(t *testing.T) {
+	t.Parallel()
+	parent := New(context.Background(), FailFast)
+	child := parent.Child(Supervisor)
+	finished := make(chan struct{})
+	child.Go(func(ctx context.Context) error {
+		defer close(finished)
+		select {
+		case <-time.After(40 * time.Millisecond):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+
+	if err := parent.Wait(); err != nil {
+		t.Fatalf("unexpected parent error: %v", err)
+	}
+
+	select {
+	case <-finished:
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("parent.Wait should join child scope tasks")
 	}
 }
 
@@ -235,5 +269,39 @@ func TestObserverHooks(t *testing.T) {
 	if obs.started.Load() != 2 || obs.finished.Load() != 2 || obs.joined.Load() != 1 {
 		t.Fatalf("unexpected observer counts: started=%d finished=%d joined=%d",
 			obs.started.Load(), obs.finished.Load(), obs.joined.Load())
+	}
+}
+
+func TestGoAfterWaitDoesNotRunTask(t *testing.T) {
+	t.Parallel()
+	s := New(context.Background(), FailFast)
+	if err := s.Wait(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ran := atomic.Int32{}
+	s.Go(func(_ context.Context) error {
+		ran.Add(1)
+		return nil
+	})
+	time.Sleep(25 * time.Millisecond)
+	if ran.Load() != 0 {
+		t.Fatal("task should not run after Wait has completed")
+	}
+}
+
+func TestGoAfterCancelDoesNotRunTask(t *testing.T) {
+	t.Parallel()
+	s := New(context.Background(), FailFast)
+	s.Cancel(errors.New("stop"))
+
+	ran := atomic.Int32{}
+	s.Go(func(_ context.Context) error {
+		ran.Add(1)
+		return nil
+	})
+	time.Sleep(25 * time.Millisecond)
+	if ran.Load() != 0 {
+		t.Fatal("task should not run after Cancel")
 	}
 }

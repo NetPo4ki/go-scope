@@ -5,21 +5,25 @@ package errgroup
 
 import (
 	"context"
+	"sync"
 
 	"github.com/NetPo4ki/go-scope/scope"
 )
 
 // Group is an errgroup-like wrapper over scope.Scope (FailFast).
 type Group struct {
-	s   *scope.Scope
-	ctx context.Context
+	s      *scope.Scope
+	ctx    context.Context
+	cancel context.CancelFunc
+	once   sync.Once
 }
 
 // WithContext creates a Group bound to ctx. Returned context is canceled when
-// any function passed to Go returns a non-nil error.
+// any function passed to Go returns a non-nil error, or when Wait returns.
 func WithContext(ctx context.Context) (*Group, context.Context) {
-	s := scope.New(ctx, scope.FailFast)
-	g := &Group{s: s, ctx: s.Context()}
+	base, cancel := context.WithCancel(ctx)
+	s := scope.New(base, scope.FailFast)
+	g := &Group{s: s, ctx: s.Context(), cancel: cancel}
 	return g, g.ctx
 }
 
@@ -36,5 +40,7 @@ func (g *Group) Go(f func() error) {
 // Wait blocks until all functions have returned. It returns the first non-nil
 // error (FailFast semantics) or nil on success.
 func (g *Group) Wait() error {
-	return g.s.Wait()
+	err := g.s.Wait()
+	g.once.Do(g.cancel)
+	return err
 }

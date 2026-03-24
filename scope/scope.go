@@ -3,7 +3,6 @@ package scope
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -70,6 +69,8 @@ type Scope struct {
 	mu       sync.Mutex
 	firstErr error
 	canceled bool
+	waiting  bool
+	done     bool
 
 	opts Options
 	obs  Observer
@@ -83,20 +84,22 @@ func New(parent context.Context, policy Policy, optFns ...Option) *Scope {
 		parent = context.Background()
 	}
 	// collect options first
-	base := parent
-	ctx, cancel := context.WithCancel(base)
-	s := &Scope{ctx: ctx, cancel: cancel, policy: policy, opts: defaultOptions()}
+	s := &Scope{policy: policy, opts: defaultOptions()}
 	for _, fn := range optFns {
 		fn(&s.opts)
 	}
-	// apply deadline/timeout if provided
-	if !s.opts.Deadline.IsZero() {
-		ctx, cancel = context.WithDeadline(base, s.opts.Deadline)
-		s.ctx, s.cancel = ctx, cancel
-	} else if s.opts.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(base, s.opts.Timeout)
-		s.ctx, s.cancel = ctx, cancel
+
+	var ctx context.Context
+	var cancel context.CancelFunc
+	switch {
+	case !s.opts.Deadline.IsZero():
+		ctx, cancel = context.WithDeadline(parent, s.opts.Deadline)
+	case s.opts.Timeout > 0:
+		ctx, cancel = context.WithTimeout(parent, s.opts.Timeout)
+	default:
+		ctx, cancel = context.WithCancel(parent)
 	}
+	s.ctx, s.cancel = ctx, cancel
 	s.obs = s.opts.Observer
 	if s.opts.MaxConcurrency > 0 {
 		s.lim = newSemaphoreLimiter(s.opts.MaxConcurrency)
@@ -115,7 +118,13 @@ func (s *Scope) Go(fn func(ctx context.Context) error) {
 	if fn == nil {
 		return
 	}
+	s.mu.Lock()
+	if s.waiting || s.done || s.canceled {
+		s.mu.Unlock()
+		return
+	}
 	s.wg.Add(1)
+	s.mu.Unlock()
 	go func() {
 		defer s.wg.Done()
 		if s.lim != nil {
@@ -128,7 +137,7 @@ func (s *Scope) Go(fn func(ctx context.Context) error) {
 		defer func() {
 			if r := recover(); r != nil {
 				if s.opts.PanicAsError {
-					err := fmt.Errorf("panic: %v", r)
+					err := panicToError(r)
 					s.fail(err)
 					if s.obs != nil {
 						s.obs.TaskFinished(s.ctx, 0, err, true)
@@ -185,7 +194,13 @@ func (s *Scope) Wait() error {
 	if s.obs != nil {
 		start = time.Now()
 	}
+	s.mu.Lock()
+	s.waiting = true
+	s.mu.Unlock()
 	s.wg.Wait()
+	s.mu.Lock()
+	s.done = true
+	s.mu.Unlock()
 	if s.obs != nil {
 		s.obs.ScopeJoined(s.ctx, time.Since(start))
 	}
@@ -218,6 +233,21 @@ func (s *Scope) fail(err error) {
 
 // Child creates a child Scope inheriting options; parent cancellation cancels the child.
 func (s *Scope) Child(policy Policy, optFns ...Option) *Scope {
+	s.mu.Lock()
+	if s.waiting || s.done {
+		s.mu.Unlock()
+		ctx, cancel := context.WithCancel(s.ctx)
+		cancel()
+		return &Scope{
+			ctx:    ctx,
+			cancel: cancel,
+			policy: policy,
+			opts:   defaultOptions(),
+		}
+	}
+	s.wg.Add(1)
+	s.mu.Unlock()
+
 	childOpts := s.opts
 	for _, fn := range optFns {
 		fn(&childOpts)
@@ -239,5 +269,11 @@ func (s *Scope) Child(policy Policy, optFns ...Option) *Scope {
 	if cs.obs != nil {
 		cs.obs.ScopeCreated(ctx)
 	}
+
+	go func() {
+		defer s.wg.Done()
+		_ = cs.Wait()
+	}()
+
 	return cs
 }

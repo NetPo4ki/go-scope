@@ -11,11 +11,15 @@ func TestWithContextHappy(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	g, gctx := WithContext(ctx)
-	_ = gctx
 	g.Go(func() error { return nil })
 	g.Go(func() error { time.Sleep(10 * time.Millisecond); return nil })
 	if err := g.Wait(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case <-gctx.Done():
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("returned context should be canceled after Wait")
 	}
 }
 
