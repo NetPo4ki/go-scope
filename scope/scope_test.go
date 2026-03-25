@@ -305,3 +305,32 @@ func TestGoAfterCancelDoesNotRunTask(t *testing.T) {
 		t.Fatal("task should not run after Cancel")
 	}
 }
+
+func TestTryGoReportsLifecycleRejection(t *testing.T) {
+	t.Parallel()
+
+	s := New(context.Background(), FailFast)
+	if ok := s.TryGo(nil); ok {
+		t.Fatal("TryGo(nil) should return false")
+	}
+
+	if ok := s.TryGo(func(_ context.Context) error { return nil }); !ok {
+		t.Fatal("TryGo should accept task on active scope")
+	}
+	if err := s.Wait(); err != nil {
+		t.Fatalf("unexpected wait error: %v", err)
+	}
+
+	if ok := s.TryGo(func(_ context.Context) error { return nil }); ok {
+		t.Fatal("TryGo should reject task after Wait")
+	}
+}
+
+func TestTryGoRejectsAfterCancel(t *testing.T) {
+	t.Parallel()
+	s := New(context.Background(), FailFast)
+	s.Cancel(errors.New("stop"))
+	if ok := s.TryGo(func(_ context.Context) error { return nil }); ok {
+		t.Fatal("TryGo should reject task after Cancel")
+	}
+}

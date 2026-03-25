@@ -113,15 +113,28 @@ func New(parent context.Context, policy Policy, optFns ...Option) *Scope {
 // Context returns the Scope's context.
 func (s *Scope) Context() context.Context { return s.ctx }
 
-// Go starts a task owned by the Scope. The task should be cooperative and check ctx.Done().
+// Go starts a task owned by the Scope.
+//
+// Go is best-effort: if the scope is already canceled, waiting, or done, the
+// task is not started and the call is a no-op. Use TryGo when the caller needs
+// to know whether spawning succeeded.
 func (s *Scope) Go(fn func(ctx context.Context) error) {
+	_ = s.TryGo(fn)
+}
+
+// TryGo starts a task owned by the Scope and reports whether spawning
+// succeeded.
+//
+// TryGo returns false when fn is nil or when the scope is no longer accepting
+// new tasks (already canceled, waiting, or done).
+func (s *Scope) TryGo(fn func(ctx context.Context) error) bool {
 	if fn == nil {
-		return
+		return false
 	}
 	s.mu.Lock()
 	if s.waiting || s.done || s.canceled {
 		s.mu.Unlock()
-		return
+		return false
 	}
 	s.wg.Add(1)
 	s.mu.Unlock()
@@ -165,6 +178,7 @@ func (s *Scope) Go(fn func(ctx context.Context) error) {
 			s.obs.TaskFinished(s.ctx, time.Since(start), err, false)
 		}
 	}()
+	return true
 }
 
 // Cancel cancels the Scope and records the first non-nil error as the cause.
