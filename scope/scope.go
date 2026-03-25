@@ -89,16 +89,7 @@ func New(parent context.Context, policy Policy, optFns ...Option) *Scope {
 		fn(&s.opts)
 	}
 
-	var ctx context.Context
-	var cancel context.CancelFunc
-	switch {
-	case !s.opts.Deadline.IsZero():
-		ctx, cancel = context.WithDeadline(parent, s.opts.Deadline)
-	case s.opts.Timeout > 0:
-		ctx, cancel = context.WithTimeout(parent, s.opts.Timeout)
-	default:
-		ctx, cancel = context.WithCancel(parent)
-	}
+	ctx, cancel := deriveContext(parent, s.opts.Deadline, s.opts.Timeout)
 	s.ctx, s.cancel = ctx, cancel
 	s.obs = s.opts.Observer
 	if s.opts.MaxConcurrency > 0 {
@@ -266,16 +257,7 @@ func (s *Scope) Child(policy Policy, optFns ...Option) *Scope {
 	for _, fn := range optFns {
 		fn(&childOpts)
 	}
-	var ctx context.Context
-	var cancel context.CancelFunc
-	switch {
-	case !childOpts.Deadline.IsZero():
-		ctx, cancel = context.WithDeadline(s.ctx, childOpts.Deadline)
-	case childOpts.Timeout > 0:
-		ctx, cancel = context.WithTimeout(s.ctx, childOpts.Timeout)
-	default:
-		ctx, cancel = context.WithCancel(s.ctx)
-	}
+	ctx, cancel := deriveContext(s.ctx, childOpts.Deadline, childOpts.Timeout)
 	cs := &Scope{ctx: ctx, cancel: cancel, policy: policy, opts: childOpts, obs: childOpts.Observer}
 	if childOpts.MaxConcurrency > 0 {
 		cs.lim = newSemaphoreLimiter(childOpts.MaxConcurrency)

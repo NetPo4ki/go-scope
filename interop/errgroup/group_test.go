@@ -86,3 +86,33 @@ func TestWithContextParentCancel(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
+
+func TestWithContextNoTasksWaitCancelsReturnedContext(t *testing.T) {
+	t.Parallel()
+	g, gctx := WithContext(context.Background())
+	if err := g.Wait(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case <-gctx.Done():
+	default:
+		t.Fatal("expected returned context canceled after Wait with no tasks")
+	}
+}
+
+func TestWithContextSecondWaitStillCanceled(t *testing.T) {
+	t.Parallel()
+	g, gctx := WithContext(context.Background())
+	g.Go(func() error { return nil })
+	if err := g.Wait(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := g.Wait(); err != nil {
+		t.Fatalf("second Wait should return same nil: %v", err)
+	}
+	select {
+	case <-gctx.Done():
+	default:
+		t.Fatal("expected returned context still canceled after second Wait")
+	}
+}
