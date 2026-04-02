@@ -1,6 +1,6 @@
 GO = go
 
-.PHONY: all build test race lint bench micro
+.PHONY: all build test race lint bench bench-micro bench-macro bench-full
 
 all: build test
 
@@ -16,7 +16,16 @@ race:
 lint:
 	golangci-lint run
 
+# Quick local benchmark (no high iteration count)
 bench:
-	$(GO) test -bench=. -benchtime=1x ./...
+	$(GO) test -bench=. -benchmem -count=1 ./benchmarks/micro/... ./benchmarks/macro/...
 
+bench-micro:
+	$(GO) test -bench=. -benchmem -count=5 ./benchmarks/micro/...
 
+bench-macro:
+	$(GO) test -bench=. -benchmem -count=5 ./benchmarks/macro/...
+
+# Full reproducible run (see benchmarks/README.md and scripts/bench.sh)
+bench-full:
+	./scripts/bench.sh
