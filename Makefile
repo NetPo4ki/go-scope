@@ -1,14 +1,23 @@
 GO = go
 
-.PHONY: all build test race lint bench bench-micro bench-macro bench-full examples-build
+.PHONY: all build test race lint ci bench bench-micro bench-macro bench-full examples-build
 
 all: build test
+
+# Local parity with .github/workflows/ci.yml (minus golangci-lint).
+ci: vet
+	$(GO) build ./...
+	$(GO) test -race ./...
+	$(GO) build -o /dev/null ./examples/... ./cmd/...
 
 build:
 	$(GO) build ./...
 
 examples-build:
 	$(GO) build -o /dev/null ./examples/... ./cmd/...
+
+vet:
+	$(GO) vet ./...
 
 test:
 	$(GO) test ./...
