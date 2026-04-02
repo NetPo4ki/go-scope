@@ -1,3 +1,5 @@
-// Package otel provides an OpenTelemetry observer plugin for the scope library.
-// It emits span events (spawn, cancel, join, error, panic) with low overhead.
+// Package otel provides observer implementations for the scope library.
+//
+// [Recorder] captures lifecycle events for tests and lightweight tracing without
+// importing the OpenTelemetry SDK. [Nop] discards all events.
 package otel
