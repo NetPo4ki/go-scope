@@ -45,7 +45,7 @@ func withScope() {
 	s.Go(func(_ context.Context) error { time.Sleep(30 * time.Millisecond); return nil })
 	s.Go(func(_ context.Context) error { time.Sleep(50 * time.Millisecond); return nil })
 	_ = s.Wait()
-	fmt.Printf("scope counters: started=%d finished=%d\n", obs.tasksStarted, obs.tasksFinished)
+	fmt.Printf("scope counters: started=%d finished=%d\n", atomic.LoadInt64(&obs.tasksStarted), atomic.LoadInt64(&obs.tasksFinished))
 }
 
 func withErrgroup() {

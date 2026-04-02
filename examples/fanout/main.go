@@ -55,7 +55,7 @@ func render(w http.ResponseWriter, p Profile, hist []Event, recs []Item) {
 // - request-scoped timeout (200ms)
 // - fail-fast policy for critical subrequests (profile, history)
 // - supervisor child scope for recommendations
-// - bounded parallelism for slow path via a simple semaphore
+// - bounded parallelism on the child scope via WithMaxConcurrency
 func GetPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	s := scope.New(ctx, scope.FailFast, scope.WithTimeout(200*time.Millisecond))
@@ -80,21 +80,14 @@ func GetPage(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	// Recommendations: supervisor scope + bounded concurrency.
-	recScope := s.Child(scope.Supervisor)
-	sem := make(chan struct{}, 10) // simple semaphore
+	// Recommendations: supervisor child + bounded concurrency (library limiter).
+	recScope := s.Child(scope.Supervisor, scope.WithMaxConcurrency(10))
 	var recsMu sync.Mutex
 	var recs []Item
 
 	for _, cat := range categoriesFor(userID(r)) {
 		cat := cat
 		recScope.Go(func(ctx context.Context) error {
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			defer func() { <-sem }()
 			items, err := fetchRecommendations(ctx, userID(r), cat)
 			if err != nil {
 				return err

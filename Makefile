@@ -1,11 +1,14 @@
 GO = go
 
-.PHONY: all build test race lint bench bench-micro bench-macro bench-full
+.PHONY: all build test race lint bench bench-micro bench-macro bench-full examples-build
 
 all: build test
 
 build:
 	$(GO) build ./...
+
+examples-build:
+	$(GO) build -o /dev/null ./examples/... ./cmd/...
 
 test:
 	$(GO) test ./...

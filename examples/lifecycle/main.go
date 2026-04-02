@@ -45,8 +45,8 @@ func withScope() {
 }
 
 func withErrgroup() {
-	ctx := context.Background()
-	g, ctx := errgroup.WithContext(ctx)
+	parent, cancel := context.WithCancel(context.Background())
+	g, ctx := errgroup.WithContext(parent)
 	g.Go(func() error {
 		select {
 		case <-time.After(150 * time.Millisecond):
@@ -57,22 +57,8 @@ func withErrgroup() {
 			return ctx.Err()
 		}
 	})
-
-	pctx, cancel := context.WithCancel(ctx)
-	g2, cctx := errgroup.WithContext(pctx)
-	g2.Go(func() error {
-		select {
-		case <-time.After(150 * time.Millisecond):
-			fmt.Println("errgroup child2: completed")
-			return nil
-		case <-cctx.Done():
-			fmt.Println("errgroup child2: canceled")
-			return cctx.Err()
-		}
-	})
 	time.AfterFunc(50*time.Millisecond, cancel)
 	_ = g.Wait()
-	_ = g2.Wait()
 }
 
 func withBare() {
