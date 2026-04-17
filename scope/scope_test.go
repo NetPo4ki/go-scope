@@ -181,6 +181,72 @@ func TestParentWaitJoinsChildScope(t *testing.T) {
 	}
 }
 
+func TestChildErrorPropagesToParent_FailFast(t *testing.T) {
+	t.Parallel()
+	parent := New(context.Background(), FailFast)
+	child := parent.Child(FailFast)
+	childErr := errors.New("child-boom")
+	child.Go(func(_ context.Context) error {
+		return childErr
+	})
+	err := parent.Wait()
+	if err == nil {
+		t.Fatal("parent.Wait should return child's error")
+	}
+	if !errors.Is(err, childErr) {
+		t.Fatalf("expected child error, got %v", err)
+	}
+}
+
+func TestChildErrorPropagesToParent_Supervisor(t *testing.T) {
+	t.Parallel()
+	parent := New(context.Background(), Supervisor)
+	child := parent.Child(FailFast)
+	childErr := errors.New("child-boom")
+	child.Go(func(_ context.Context) error {
+		return childErr
+	})
+	parentErr := errors.New("parent-boom")
+	parent.Go(func(_ context.Context) error {
+		time.Sleep(10 * time.Millisecond)
+		return parentErr
+	})
+	err := parent.Wait()
+	if err == nil {
+		t.Fatal("parent.Wait should return aggregated errors")
+	}
+	if !errors.Is(err, childErr) {
+		t.Fatalf("expected child error in aggregated result, got %v", err)
+	}
+	if !errors.Is(err, parentErr) {
+		t.Fatalf("expected parent error in aggregated result, got %v", err)
+	}
+}
+
+func TestChildErrorCancelsSiblings_FailFast(t *testing.T) {
+	t.Parallel()
+	parent := New(context.Background(), FailFast)
+	siblingCanceled := make(chan struct{})
+
+	parent.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		close(siblingCanceled)
+		return ctx.Err()
+	})
+
+	child := parent.Child(FailFast)
+	child.Go(func(_ context.Context) error {
+		return errors.New("child-boom")
+	})
+
+	_ = parent.Wait()
+	select {
+	case <-siblingCanceled:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("child error should cancel parent's siblings in FailFast")
+	}
+}
+
 func TestScopeTimeoutCancelsTasks(t *testing.T) {
 	t.Parallel()
 	s := New(context.Background(), FailFast, WithTimeout(30*time.Millisecond))

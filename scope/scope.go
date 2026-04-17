@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -71,6 +72,11 @@ type Scope struct {
 	canceled bool
 	waiting  bool
 	done     bool
+
+	// cancelDone is set atomically after Cancel() has recorded the error
+	// and called s.cancel(). Used as a lock-free fast path in fail() to
+	// avoid mutex contention when many goroutines drain simultaneously.
+	cancelDone atomic.Uint32
 
 	opts Options
 	obs  Observer
@@ -183,13 +189,11 @@ func (s *Scope) Cancel(err error) {
 	cause := s.firstErr
 	s.mu.Unlock()
 
-	if !wasCanceled {
-		s.cancel()
-		if s.obs != nil {
-			s.obs.ScopeCancelled(s.ctx, cause)
-		}
-	} else {
-		s.cancel()
+	s.cancel()
+	s.cancelDone.Store(1)
+
+	if !wasCanceled && s.obs != nil {
+		s.obs.ScopeCancelled(s.ctx, cause)
 	}
 }
 
@@ -219,6 +223,12 @@ func (s *Scope) Wait() error {
 
 func (s *Scope) fail(err error) {
 	if err == nil {
+		return
+	}
+	// Lock-free fast path for FailFast: once Cancel() has completed
+	// (firstErr recorded, context canceled), subsequent fail() calls
+	// have no observable effect — skip the mutex entirely.
+	if s.policy == FailFast && s.cancelDone.Load() == 1 {
 		return
 	}
 	s.mu.Lock()
@@ -268,7 +278,9 @@ func (s *Scope) Child(policy Policy, optFns ...Option) *Scope {
 
 	go func() {
 		defer s.wg.Done()
-		_ = cs.Wait()
+		if err := cs.Wait(); err != nil {
+			s.fail(err)
+		}
 	}()
 
 	return cs
