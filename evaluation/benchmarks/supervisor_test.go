@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc/pool"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NetPo4ki/go-scope/scope"
@@ -67,6 +68,28 @@ func BenchmarkSupervisor_Errgroup(b *testing.B) {
 				}
 				// errgroup only captures first error — cannot aggregate.
 				_ = g.Wait()
+			}
+		})
+	}
+}
+
+func BenchmarkSupervisor_Conc(b *testing.B) {
+	for _, n := range []int{10, 100} {
+		k := n / 4
+		b.Run(fmt.Sprintf("N=%d_K=%d", n, k), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				p := pool.New().WithContext(context.Background())
+				for j := 0; j < n; j++ {
+					fail := j < k
+					p.Go(func(_ context.Context) error {
+						if fail {
+							return errBench
+						}
+						return nil
+					})
+				}
+				_ = p.Wait()
 			}
 		})
 	}

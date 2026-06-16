@@ -400,3 +400,89 @@ func TestTryGoRejectsAfterCancel(t *testing.T) {
 		t.Fatal("TryGo should reject task after Cancel")
 	}
 }
+
+// TestSupervisorChildIsolatesFailuresFromFailFastParent locks in the
+// contract that a Supervisor child does not propagate its joined error to
+// its parent. This is the semantics relied upon by the
+// required-plus-optional fan-out pattern (the user dashboard in
+// evaluation/example): optional fields run on a Supervisor child so that
+// their failures stay in the child and the FailFast root is not failed.
+func TestSupervisorChildIsolatesFailuresFromFailFastParent(t *testing.T) {
+	t.Parallel()
+	root := New(context.Background(), FailFast)
+
+	// One required task on the root; it must succeed.
+	rootRan := atomic.Int32{}
+	root.Go(func(_ context.Context) error {
+		rootRan.Add(1)
+		return nil
+	})
+
+	// Supervisor child with two failing tasks.
+	child := root.Child(Supervisor)
+	child.Go(func(_ context.Context) error { return errors.New("optional A failed") })
+	child.Go(func(_ context.Context) error { return errors.New("optional B failed") })
+
+	if err := root.Wait(); err != nil {
+		t.Fatalf("FailFast root must not be failed by Supervisor child errors, got: %v", err)
+	}
+	if rootRan.Load() != 1 {
+		t.Fatalf("root task did not run: count=%d", rootRan.Load())
+	}
+}
+
+// TestSupervisorChildPanicDoesNotPropagate locks in that a panic in a
+// Supervisor child task is contained inside the child after PanicAsError
+// converts it to an error. The FailFast parent must remain unaffected.
+func TestSupervisorChildPanicDoesNotPropagate(t *testing.T) {
+	t.Parallel()
+	root := New(context.Background(), FailFast)
+
+	rootRan := atomic.Int32{}
+	root.Go(func(_ context.Context) error {
+		rootRan.Add(1)
+		return nil
+	})
+
+	child := root.Child(Supervisor)
+	child.Go(func(_ context.Context) error {
+		panic("optional task panic")
+	})
+
+	if err := root.Wait(); err != nil {
+		t.Fatalf("FailFast root must not be failed by Supervisor child panic, got: %v", err)
+	}
+	if rootRan.Load() != 1 {
+		t.Fatalf("root task did not run: count=%d", rootRan.Load())
+	}
+}
+
+// TestFailFastChildStillPropagates verifies that the isolation rule is
+// scoped to Supervisor children only; a FailFast child still propagates
+// to its parent so that nested fail-fast pipelines behave as documented.
+func TestFailFastChildStillPropagates(t *testing.T) {
+	t.Parallel()
+	root := New(context.Background(), FailFast)
+
+	root.Go(func(ctx context.Context) error {
+		// Long-running task that must observe cancellation.
+		select {
+		case <-time.After(time.Second):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+
+	child := root.Child(FailFast)
+	wantErr := errors.New("nested fail-fast")
+	child.Go(func(_ context.Context) error { return wantErr })
+
+	err := root.Wait()
+	if err == nil {
+		t.Fatal("FailFast child error must propagate to FailFast parent")
+	}
+	if !errors.Is(err, wantErr) && !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("expected propagated %q, got: %v", wantErr, err)
+	}
+}

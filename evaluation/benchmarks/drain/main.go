@@ -7,10 +7,11 @@ package main
 //
 //   T_drain = time from error injection moment until Wait() returns.
 //
-// Four approaches compared:
+// Five approaches compared:
 //   bare_nocancel — no fail-fast: workers run to completion despite the error
 //   bare_cancel   — manual fail-fast: cancel() + sync.Once plumbing
 //   errgroup      — errgroup.WithContext: built-in first-error cancel
+//   conc          — pool.WithContext + WithCancelOnError + WithFirstError
 //   scope         — scope.FailFast: automatic sibling cancellation
 //
 // The interesting contrast is bare_nocancel vs the rest: it shows the cost
@@ -40,6 +41,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sourcegraph/conc/pool"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NetPo4ki/go-scope/scope"
@@ -80,6 +82,7 @@ func main() {
 		{"bare_nocancel", func(nn int, wk time.Duration) time.Duration { return drainBareNoCancel(nn, wk) }},
 		{"bare_cancel", func(nn int, wk time.Duration) time.Duration { return drainBareCancel(nn, wk) }},
 		{"errgroup", func(nn int, wk time.Duration) time.Duration { return drainErrgroup(nn, wk) }},
+		{"conc", func(nn int, wk time.Duration) time.Duration { return drainConc(nn, wk) }},
 		{"scope", func(nn int, wk time.Duration) time.Duration { return drainScope(nn, wk) }},
 	}
 
@@ -201,6 +204,35 @@ func drainErrgroup(n int, work time.Duration) time.Duration {
 
 	close(allStarted)
 	_ = g.Wait()
+	t0 := time.Unix(0, injected.Load())
+	return time.Since(t0)
+}
+
+// drainConc: conc.ContextPool with cancel-on-error + first-error semantics
+// — equivalent of errgroup.WithContext.
+func drainConc(n int, work time.Duration) time.Duration {
+	p := pool.New().
+		WithContext(context.Background()).
+		WithCancelOnError().
+		WithFirstError()
+	allStarted := make(chan struct{})
+	var injected atomic.Int64
+
+	for j := 0; j < n; j++ {
+		p.Go(func(ctx context.Context) error {
+			<-allStarted
+			return cooperativeWork(ctx, work)
+		})
+	}
+
+	p.Go(func(_ context.Context) error {
+		<-allStarted
+		injected.Store(time.Now().UnixNano())
+		return fmt.Errorf("injected")
+	})
+
+	close(allStarted)
+	_ = p.Wait()
 	t0 := time.Unix(0, injected.Load())
 	return time.Since(t0)
 }

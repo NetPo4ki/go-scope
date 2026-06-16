@@ -13,4 +13,9 @@ dist/
 
 vendor/
 
+# LaTeX build artifacts
+docs/latex/build/
+docs/presentation/build/
 
+# Compiled benchmark binaries
+/drain

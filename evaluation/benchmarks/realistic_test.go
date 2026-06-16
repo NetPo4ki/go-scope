@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc/pool"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NetPo4ki/go-scope/scope"
@@ -64,6 +65,25 @@ func BenchmarkRealistic_Errgroup(b *testing.B) {
 						})
 					}
 					_ = g.Wait()
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkRealistic_Conc(b *testing.B) {
+	for _, lat := range []time.Duration{100 * time.Microsecond, time.Millisecond} {
+		for _, n := range []int{10, 100} {
+			b.Run(fmt.Sprintf("lat=%v/N=%d", lat, n), func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					p := pool.New().WithContext(context.Background())
+					for j := 0; j < n; j++ {
+						p.Go(func(ctx context.Context) error {
+							return ioWork(ctx, lat)
+						})
+					}
+					_ = p.Wait()
 				}
 			})
 		}

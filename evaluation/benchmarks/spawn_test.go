@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc/pool"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NetPo4ki/go-scope/scope"
@@ -47,6 +48,21 @@ func BenchmarkSpawnWait_Errgroup(b *testing.B) {
 					g.Go(func() error { return nil })
 				}
 				_ = g.Wait()
+			}
+		})
+	}
+}
+
+func BenchmarkSpawnWait_Conc(b *testing.B) {
+	for _, n := range []int{1, 10, 100, 1000} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				p := pool.New().WithContext(context.Background())
+				for j := 0; j < n; j++ {
+					p.Go(func(_ context.Context) error { return nil })
+				}
+				_ = p.Wait()
 			}
 		})
 	}

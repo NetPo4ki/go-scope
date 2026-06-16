@@ -278,7 +278,15 @@ func (s *Scope) Child(policy Policy, optFns ...Option) *Scope {
 
 	go func() {
 		defer s.wg.Done()
-		if err := cs.Wait(); err != nil {
+		err := cs.Wait()
+		// Supervisor children isolate their failures: the joined
+		// error is observable to a caller that explicitly invokes
+		// cs.Wait(), but it never propagates to the parent. This is
+		// what makes "FailFast root with a Supervisor child for
+		// optional work" the idiomatic way to express
+		// required-plus-optional fan-out without leaking optional
+		// failures into the required result.
+		if err != nil && cs.policy != Supervisor {
 			s.fail(err)
 		}
 	}()
